@@ -8,7 +8,7 @@ Demultiplex paired end samples by barcodes on one read.
 import argparse
 import os.path
 import gzip
-from fastq import Paired
+from fastq_read import Paired
 
 def parse_arguments():
     """Argument parser"""
