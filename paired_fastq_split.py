@@ -45,6 +45,11 @@ def parse_arguments():
         help='Flag that barcode is on read 2',
         action='store_true'
     )
+    parser.add_argument(
+        '-count_sum',
+        help='Flag for printing count summary',
+        action='store_true'
+    )
     args = parser.parse_args()
     return args
 
@@ -52,18 +57,29 @@ def main():
     """Main"""
     args = parse_arguments()
 
-    file1 = args.file1
-    file2 = args.file2
+    files = (args.file1, args.file2)
     barcodes = args.barcodes
-    bc_start = args.bc_pos[0] - 1
-    bc_end = args.bc_pos[1] - 1
+    bc_pos = args.bc_pos
     prefix = args.prefix
-    read2_barcode = args.r2bc
+    flags = {
+        'r2bc': args.r2bc,
+        'count_sum': args.count_sum
+    }
 
-    fastq_split(file1, file2, barcodes, bc_start, bc_end, prefix, read2_barcode)
+    fastq_split(files, barcodes, bc_pos, prefix, flags)
 
 
-def fastq_split(file1, file2, barcodes, bc_start, bc_end, prefix, read2_barcode):
+def fastq_split(files, barcodes, bc_pos, prefix, flags):
+    """Core function for splitting barcodes"""
+    file1 = files[0]
+    file2 = files[1]
+    
+    bc_start = bc_pos[0] - 1
+    bc_end = bc_pos[1] - 1
+
+    read2_barcode = flags['r2bc']
+    count_summary = flags['count_sum']
+
     with open(barcodes) as barcode_file:
         # read in barcodes
         bc_list = []
@@ -76,31 +92,62 @@ def fastq_split(file1, file2, barcodes, bc_start, bc_end, prefix, read2_barcode)
 
     # generate dictionary of tuples for barcode output files
     targets = {
-        x[1]: (open_fastq(x[0] + '_R1.fastq', 'w'), open_fastq(x[0] + '_R2.fastq', 'w'))
+        x[1]: {
+            'output_files': (
+                open_fastq(x[0] + '_R1.fastq', 'w'),
+                open_fastq(x[0] + '_R2.fastq', 'w')
+            ),
+            'counter': 0
+        }
         for x in bc_list
     }
     # generate tuple for files for undetermined barcodes
-    und = (
-        open_fastq(prefix + '_Undetermined_R1.fastq', 'w'),
-        open_fastq(prefix + '_Undetermined_R2.fastq', 'w')
-    )
-
+    und = {
+        'output_files': (
+            open_fastq(prefix + '_Undetermined_R1.fastq', 'w'),
+            open_fastq(prefix + '_Undetermined_R2.fastq', 'w')
+        ),
+        'counter': 0
+    }
 
     with open_fastq(file1, 'r') as readfile1, open_fastq(file2, 'r') as readfile2:
         while True:
             try:
                 read_pair = Paired(readfile1, readfile2)
+                # get barcode portion
                 if read2_barcode:
                     read_bc = read_pair.read2.seq[bc_start:(bc_end + 1)]
                 else:
                     read_bc = read_pair.read1.seq[bc_start:(bc_end + 1)]
-                output = targets.get(read_bc, und)
 
-                output[0].write(read_pair.read1.data())
-                output[1].write(read_pair.read2.data())
+                # identify barcode, default undetermined
+                output = targets.get(read_bc, und)
+                # increase counter and write to files
+                output['counter'] += 1
+                output['output_files'][0].write(read_pair.read1.data())
+                output['output_files'][1].write(read_pair.read2.data())
 
             except EOFError:
                 break
+
+        if count_summary:
+            print_count_summary(targets, und)
+    
+
+def print_count_summary(targets, und):
+    """Print count summaries for each barcode, undetermined and total"""
+    total_count = 0
+    for barcode in targets:
+        bc_counter = targets[barcode]['counter']
+        print(f'{barcode}:  {bc_counter}')
+
+        total_count += bc_counter
+
+    undef_count = und['counter']
+    print(f'Undefined:  {undef_count}')
+
+    total_count += undef_count
+    print(f'Total:  {total_count}')
 
 def open_fastq(file_path, mode):
     """Generic opener for fastq files"""
